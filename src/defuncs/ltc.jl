@@ -165,9 +165,6 @@ end
 function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; 
   T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
 
-  @show kwargs
-
-
   tspan = T.((0, 1))
 
   w_sens = zeros(T, n_in, n_neurons)
@@ -218,8 +215,6 @@ end
 
 
 function LTC(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
-  @show kwargs
-
   lb, ub = ltc_sys_bounds(n_in, n_neurons; T)
   rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)

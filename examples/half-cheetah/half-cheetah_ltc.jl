@@ -28,11 +28,13 @@ function train_cheetah(epochs, solver=nothing; sensealg=nothing,
                     BCTRNN.LTC(f_in, n_neurons, solver, sensealg; n_sens, n_out),
                     FastDense(n_out, f_out))
 
-  cb = BCTRNN.MyCallback(T; cb=mycb, ecb=(_)->nothing, nepochs=epochs, nsamples=length(train_dl))
+  cb = BCTRNN.MyCallback(T; ecb=mycb, nepochs=epochs, nsamples=length(train_dl))
   #opt = GalacticOptim.Flux.Optimiser(ClipValue(0.5), ADAM(0.02))
-  opt = BCTRNN.ClampBoundOptim(BCTRNN.get_bounds(model,T)..., ClipValue(T(1.0)), ADAM(T(0.01)))
+  opt = BCTRNN.ClampBoundOptim(BCTRNN.get_bounds(model,T)..., ClipValue(T(0.8)), ADAM(T(0.005)))
   BCTRNN.optimize(model, BCTRNN.loss_seq, cb, opt, train_dl, epochs, T), model
 end
 #1173.351351 seconds (1.02 G allocations: 65.414 GiB, 1.82% gc time, 0.51% compilation time)
-train_cheetah(30, AutoTsit5(Rosenbrock23(autodiff=false)); sensealg=InterpolatingAdjoint(autojacvec=ReverseDiffVJP(true)), model_size=10, batchsize=12, abstol=1e-4, reltol=1e-4
+train_cheetah(30, Tsit5(); sensealg=InterpolatingAdjoint(autojacvec=ReverseDiffVJP(true)), model_size=8, batchsize=10, abstol=1e-4, reltol=1e-3
+)
+train_cheetah(30, AutoTsit5(Rosenbrock23(autodiff=false)); sensealg=InterpolatingAdjoint(autojacvec=ReverseDiffVJP(true)), model_size=6, batchsize=10, abstol=1e-4, reltol=1e-3
 )

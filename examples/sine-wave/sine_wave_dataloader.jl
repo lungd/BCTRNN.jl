@@ -66,8 +66,8 @@ end
 
 
 
-function mycb(p,l,ŷ,y;doplot=false)
-  display(l)
+function mycb(p,l,ŷ,y;doplot=true)
+  #display(l)
   if doplot
     y = ndims(y) < 3 ? stack(y,2) : y
     ŷ = ndims(ŷ) < 3 ? stack(ŷ,2) : ŷ
