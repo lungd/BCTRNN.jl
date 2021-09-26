@@ -178,51 +178,37 @@ end
 
 
 
-function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
+function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; 
+  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
+  w_sens = ones(T, n_in, n_neurons),
+  w_syns = ones(T, n_neurons, n_neurons),
+  w_gj   = ones(T, n_neurons, n_neurons),
+  mtkize=false, gen_jac=false, kwargs...)
+
   tspan = (0f0, 1f0)
-
-  w_sens = zeros(T, n_in, n_neurons)
-  w_sens[:,1] .= 1
-  w_syns = zeros(T, n_neurons, n_neurons)
-  w_syns[:,1] .= 1
-
-  w_sens = ones(T, n_in, n_neurons)
-  w_syns = ones(T, n_neurons, n_neurons)
-  w_gj   = ones(T, n_neurons, n_neurons)
-
   u0, p = BCTRNN.ltc_gj_init_p(n_in, n_neurons; T)
-  _prob = ODEProblem{true}((du,u,p,t)->ltc_gj!(du,u,p,t, n_in, n_neurons, w_sens, w_syns, w_gj), u0, tspan, p)
+
+  dudt!(du,u,p,t) = ltc_gj!(du,u,p,t, n_in, n_neurons, w_sens, w_syns, w_gj)
+  _prob = ODEProblem{true}(dudt!, u0, tspan, p)
   p_ode = p[n_in+1:end]
 
-  prob = _prob
+  prob = mtkize_prob(_prob, dudt!, mtkize, gen_jac)
 
-  sys = ModelingToolkit.modelingtoolkitize(_prob)
-  sys = ModelingToolkit.structural_simplify(sys)
-  #jac = eval(ModelingToolkit.generate_jacobian(sys)[2])
-  #f = ODEFunction{true}((du,u,p,t)->ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns), jac=jac)
-  prob = ODEProblem{true}(sys,u0,tspan,p, tgrad=true)
+  state0 = reshape(u0, :, 1)
+  θ = vcat(p_ode, u0)
 
-  # @show ModelingToolkit.equations(sys)
-
-
-  # eqs = ModelingToolkit.equations(sys)
-  # sts = ModelingToolkit.states(sys)
-  # noiseeqs = 0.1f0 .* sts
-  # ps = ModelingToolkit.parameters(sys)
-  # @named sde = SDESystem(eqs,noiseeqs,ModelingToolkit.get_iv(sys),sts,ps)
-  # prob = SDEProblem(sde,u0,tspan,p)
-
-
-  state0 = reshape(u0, :, 1)#::Matrix{T}
-  θ = vcat(p_ode, u0)#::Vector{T}
-
-  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
-  cell
+  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
 end
 
 
-function LTCGJ(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons, kwargs...)
+function LTCGJ(n_in, n_neurons, solver, sensealg; 
+  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
+  w_sens = ones(T, n_in, n_neurons),
+  w_syns = ones(T, n_neurons, n_neurons),
+  w_gj   = ones(T, n_neurons, n_neurons),
+  mtkize=false, gen_jac=false, kwargs...)
+
   lb, ub = ltc_gj_bounds(n_in, n_neurons; T)
-  rnncell = LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, kwargs...)
+  rnncell = LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, w_sens, w_syns, w_gj, mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)
 end

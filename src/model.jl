@@ -117,3 +117,16 @@ Flux.trainable(m::BCTRNNCell) = (m.p,)
 function get_bounds(m::BCTRNNCell, T::DataType=eltype(m.p))
   m.lb, m.ub
 end
+
+function mtkize_prob(prob, f, mtkize, gen_jac)
+  mtkize == false && return prob
+  
+  sys = ModelingToolkit.modelingtoolkitize(prob)
+  sys = ModelingToolkit.structural_simplify(sys)
+
+  gen_jac == false && return ODEProblem{true}(sys,u0,tspan,p, tgrad=true)
+  
+  jac = eval(ModelingToolkit.generate_jacobian(sys)[2])
+  odef = ODEFunction{true}(f, jac=jac)
+  ODEProblem{true}(odef,u0,tspan,p, tgrad=true)
+end

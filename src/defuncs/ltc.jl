@@ -163,39 +163,23 @@ end
 
 
 function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; 
-  T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
+  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
+  w_sens=ones(T, n_in, n_neurons), 
+  w_syns=ones(T, n_neurons, n_neurons),
+  mtkize=false, gen_jac=false, kwargs...)
 
   tspan = T.((0, 1))
 
-  w_sens = zeros(T, n_in, n_neurons)
-  w_sens[:,1] .= 1
-  w_syns = zeros(T, n_neurons, n_neurons)
-  w_syns[:,1] .= 1
-
-  w_sens = ones(T, n_in, n_neurons)
-  w_syns = ones(T, n_neurons, n_neurons)
-
   u0, p = ltc_sys_defs(n_in, n_neurons; T)
 
-  _prob = ODEProblem{true}((du,u,p,t)->ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns), u0, tspan, p)
+  dudt!(du,u,p,t) = ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
+
+  _prob = ODEProblem{true}(dudt!, u0, tspan, p)
   p_ode = p[n_in+1:end]
 
   prob = _prob
 
-  if mtkize
-    sys = ModelingToolkit.modelingtoolkitize(_prob)
-    sys = ModelingToolkit.structural_simplify(sys)
-    if gen_jac
-      jac = eval(ModelingToolkit.generate_jacobian(sys)[2])
-      f = ODEFunction{true}((du,u,p,t)->ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns), jac=jac)
-      prob = ODEProblem{true}(f,u0,tspan,p, tgrad=true)
-    else
-      prob = ODEProblem{true}(sys,u0,tspan,p, tgrad=true)
-    end
-  end
-
-  # @show ModelingToolkit.equations(sys)
-
+  prob = mtkize_prob(_prob, dudt!, mtkize, gen_jac)
 
   # eqs = ModelingToolkit.equations(sys)
   # sts = ModelingToolkit.states(sys)
@@ -208,15 +192,19 @@ function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub;
   state0 = reshape(u0, :, 1)#::Matrix{T}
   θ = vcat(p_ode, u0)#::Vector{T}
 
-  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
-  cell
+  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
 end
 
 
 
-function LTC(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
+function LTC(n_in, n_neurons, solver, sensealg; 
+  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
+  w_sens=ones(T, n_in, n_neurons), 
+  w_syns=ones(T, n_neurons, n_neurons),
+  mtkize=false, gen_jac=false, kwargs...)
+
   lb, ub = ltc_sys_bounds(n_in, n_neurons; T)
-  rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, mtkize, gen_jac, kwargs...)
+  rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, mtkize, gen_jac, w_sens, w_syns, kwargs...)
   MyRecur(rnncell)
 end
 
