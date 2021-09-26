@@ -31,7 +31,10 @@ end
 # TODO: reset_state! for cell with train_u0=false
 
 
-struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P}
+ode_solve_kwargs(; abstol=1e-4, reltol=1e-4, save_everystep=false, save_start=false, save_end=true) = 
+  (abstol = abstol, reltol = reltol, save_everystep = save_everystep, save_start = save_start, save_end = save_end)
+
+struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P,KW}
   n_in::Int
   n_sens::Int
   n_neurons::Int
@@ -43,10 +46,11 @@ struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P}
   ub::UB
   state0::S
   p::P
+  kwargs::KW
 
-  function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p)
-    new{typeof(solver),typeof(sensealg),typeof(prob),typeof(lb),typeof(ub),typeof(state0),typeof(p)}(
-                       n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p)
+  function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p; kwargs...)
+    new{typeof(solver),typeof(sensealg),typeof(prob),typeof(lb),typeof(ub),typeof(state0),typeof(p), typeof(kwargs)}(
+                      n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p, kwargs)
   end
 end
 
@@ -90,14 +94,12 @@ function (m::BCTRNNCell)(h, last_input, x::AbstractArray, p=m.p)
     sol[:, end], false
   end
   
-  
+  kwargs = ode_solve_kwargs(; m.kwargs...)
 
   ensemble_prob = EnsembleProblem(prob; prob_func, output_func, safetycopy=false) # TODO: safetycopy ???
   sol = solve(ensemble_prob, m.solver, EnsembleThreads(), trajectories=batchsize;
-              save_end=true, save_everystep=false, save_start=false,
               sensealg=m.sensealg,
-              reltol=1e-3, abstol=1e-4,
-              #dt=0.2, adaptive=false, dense=false,
+              kwargs...
   )
   sa = Array(sol)
   return (sa, (@view sa[end-m.n_out+1:end, :]))

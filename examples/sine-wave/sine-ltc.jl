@@ -24,7 +24,7 @@ function train_sine(epochs, solver=Tsit5();
   n_out = n_neurons
 
   model = FastChain(BCTRNN.Mapper(f_in),
-                    BCTRNN.LTC(f_in, n_neurons, solver, sensealg; n_sens, n_out),
+                    BCTRNN.LTC(f_in, n_neurons, solver, sensealg; T, n_sens, n_out, kwargs...),
                     FastDense(n_out, f_out))
 
   cb = BCTRNN.MyCallback(T; cb=mycb, ecb=(_)->nothing, nepochs=epochs, nsamples=length(train_dl))
@@ -35,7 +35,7 @@ end
 
 
 #  60.991400 seconds (168.50 M allocations: 19.765 GiB, 5.07% gc time)
-@time train_sine(200, Tsit5(); model_size=3)
+@time train_sine(200, Tsit5(); model_size=3, abstol=1e-4, reltol=1e-3)
 @time train_sine(100, Tsit5(); model_size=10)
 
 @time train_sine(100, AutoTsit5(Rosenbrock23(autodiff=false)); model_size=10)

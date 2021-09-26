@@ -178,7 +178,7 @@ end
 
 
 
-function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons)
+function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
   tspan = (0f0, 1f0)
 
   w_sens = zeros(T, n_in, n_neurons)
@@ -216,13 +216,13 @@ function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=
   state0 = reshape(u0, :, 1)#::Matrix{T}
   θ = vcat(p_ode, u0)#::Vector{T}
 
-  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ)
+  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
   cell
 end
 
 
-function LTCGJ(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons)
+function LTCGJ(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons, kwargs...)
   lb, ub = ltc_gj_bounds(n_in, n_neurons; T)
-  rnncell = LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T=T, n_sens=n_sens, n_out=n_out)
+  rnncell = LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, kwargs...)
   MyRecur(rnncell)
 end

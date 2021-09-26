@@ -162,7 +162,12 @@ end
 
 
 
-function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false)
+function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; 
+  T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
+
+  @show kwargs
+
+
   tspan = T.((0, 1))
 
   w_sens = zeros(T, n_in, n_neurons)
@@ -206,15 +211,17 @@ function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_
   state0 = reshape(u0, :, 1)#::Matrix{T}
   θ = vcat(p_ode, u0)#::Vector{T}
 
-  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ)
+  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
   cell
 end
 
 
 
-function LTC(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons)
+function LTC(n_in, n_neurons, solver, sensealg; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
+  @show kwargs
+
   lb, ub = ltc_sys_bounds(n_in, n_neurons; T)
-  rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T=T, n_sens=n_sens, n_out=n_out)
+  rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)
 end
 

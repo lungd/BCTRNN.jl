@@ -145,7 +145,7 @@ end
 
 
 
-function LTCSynStateCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons)
+function LTCSynStateCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n_sens=n_neurons, n_out=n_neurons, mtkize=false, gen_jac=false, kwargs...)
   tspan = T.((0, 1))
 
   w_sens = zeros(T, n_in, n_neurons)
@@ -183,6 +183,6 @@ function LTCSynStateCell(n_in, n_neurons, solver, sensealg, lb, ub; T=Float32, n
   state0 = reshape(u0, :, 1)#::Matrix{T}
   θ = vcat(p_ode, u0)#::Vector{T}
 
-  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ)
+  cell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
   cell
 end
