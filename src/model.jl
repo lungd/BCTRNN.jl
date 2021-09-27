@@ -54,6 +54,23 @@ struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P,KW}
   end
 end
 
+function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, odef, u0, tspan, p, lb, ub; mtkize=false, gen_jac=false, kwargs...)
+  _prob = ODEProblem{true}(odef, u0, tspan, p)
+  p_ode = p#[n_in+1:end]
+  prob = mtkize_prob(_prob, odef, mtkize, gen_jac)
+
+  # eqs = ModelingToolkit.equations(sys)
+  # sts = ModelingToolkit.states(sys)
+  # noiseeqs = 0.1f0 .* sts
+  # ps = ModelingToolkit.parameters(sys)
+  # @named sde = SDESystem(eqs,noiseeqs,ModelingToolkit.get_iv(sys),sts,ps)
+  # prob = SDEProblem(sde,u0,tspan,p)
+
+  state0 = reshape(u0, :, 1)
+  θ = vcat(p_ode, u0)
+
+  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
+end
 
 
 

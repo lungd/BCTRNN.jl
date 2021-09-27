@@ -48,10 +48,10 @@
   nothing
 end
 
-function ltc_gj_init_p(n_in, n_neurons; T=Float32)
-  stim   = fill(T(0), n_in)
-  #w_sens = zeros(T, n_in, n_neurons)
-  #w_syns = zeros(T, n_neurons, n_neurons)
+function ltc_gj_init_u0p(n_in, n_neurons; T=Float32)
+  v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
+
+  #stim   = fill(T(0), n_in)
   C      = rand_uniform(T,  1.0,     1.002,   n_neurons)
   G_L    = rand_uniform(T,  0.0001,  0.1,     n_neurons)
   E_L    = rand_uniform(T, -0.3,     0.3,     n_neurons) #.± 0.1f0
@@ -67,18 +67,13 @@ function ltc_gj_init_p(n_in, n_neurons; T=Float32)
   G_gj   = rand_uniform(T,  0.0001,  0.1,     n_neurons, n_neurons)
   E_gj   = rand_uniform(T, -0.9,     0.9,     n_neurons, n_neurons)
 
-  v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
-
-  #u0 = ComponentArray(v=v)
-  #p = ComponentArrays(stim=stim, C=C, G_L=G_L, E_L=E_L, 
-  #                G_sens=G_sens, s_sens=s_sens, h_sens=h_sens, E_sens=E_sens,
-  #                G_syns=G_syns, s_syns=s_syns, h_syns=h_syns, E_syns=E_syns)
   u0 = v
-  p = vcat(stim, #vec(w_sens), vec(w_syns),
-           C, G_L, E_L,
-           vec(G_sens), vec(s_sens), vec(h_sens), vec(E_sens),
-           vec(G_syns), vec(s_syns), vec(h_syns), vec(E_syns),
-           vec(G_gj), vec(E_gj))
+  p = vcat( #stim,
+    C, G_L, E_L,
+    vec(G_sens), vec(s_sens), vec(h_sens), vec(E_sens),
+    vec(G_syns), vec(s_syns), vec(h_syns), vec(E_syns),
+    vec(G_gj), vec(E_gj)
+  )
   return u0, p
 end
 
@@ -176,39 +171,18 @@ function ltc_gj_unpack_p(n_in,n_neurons,p)
 end
 
 
-
-
-function LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; 
-  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
-  w_sens = ones(T, n_in, n_neurons),
-  w_syns = ones(T, n_neurons, n_neurons),
-  w_gj   = ones(T, n_neurons, n_neurons),
-  mtkize=false, gen_jac=false, kwargs...)
-
-  tspan = (0f0, 1f0)
-  u0, p = BCTRNN.ltc_gj_init_p(n_in, n_neurons; T)
-
-  dudt!(du,u,p,t) = ltc_gj!(du,u,p,t, n_in, n_neurons, w_sens, w_syns, w_gj)
-  _prob = ODEProblem{true}(dudt!, u0, tspan, p)
-  p_ode = p[n_in+1:end]
-
-  prob = mtkize_prob(_prob, dudt!, mtkize, gen_jac)
-
-  state0 = reshape(u0, :, 1)
-  θ = vcat(p_ode, u0)
-
-  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
-end
-
-
 function LTCGJ(n_in, n_neurons, solver, sensealg; 
-  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
-  w_sens = ones(T, n_in, n_neurons),
-  w_syns = ones(T, n_neurons, n_neurons),
+  T=Float32, tspan=T.((0, 1)), n_sens=n_neurons, n_out=n_neurons, 
+  w_sens=ones(T, n_in, n_neurons), 
+  w_syns=ones(T, n_neurons, n_neurons),
   w_gj   = ones(T, n_neurons, n_neurons),
   mtkize=false, gen_jac=false, kwargs...)
 
+  
   lb, ub = ltc_gj_bounds(n_in, n_neurons; T)
-  rnncell = LTCGJCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, w_sens, w_syns, w_gj, mtkize, gen_jac, kwargs...)
+  u0, p = ltc_gj_init_u0p(n_in, n_neurons; T)
+  dudt!(du,u,p,t) = ltc_gj!(du,u,p,t, n_in, n_neurons, w_sens, w_syns, w_gj)
+
+  rnncell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, dudt!, u0, tspan, p, lb, ub; mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)
 end

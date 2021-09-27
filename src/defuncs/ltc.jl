@@ -1,7 +1,7 @@
-@fastmath @views function ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
+@fastmath @views function ltc!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
   v = u
-  stim, C, G_L, E_L, G_sens, s_sens, h_sens, E_sens, G_syns, s_syns, h_syns, E_syns = ltc_sys_unpack_p(n_in,n_neurons,p)
-  
+  stim, C, G_L, E_L, G_sens, s_sens, h_sens, E_sens, G_syns, s_syns, h_syns, E_syns = ltc_unpack_p(n_in,n_neurons,p)
+
   #I_senss = reshape([G_sens[s,n] * NNlib.σ((stim[s] - h_sens[s,n]) * s_sens[s,n]) * (v[n] - E_sens[s,n]) for s in 1:size(G_sens,1), n in 1:size(G_sens,2)], size(G_sens,1), :)
   #I_synss = reshape([G_syns[s,n] * NNlib.σ((v[s] - h_syns[s,n]) * s_syns[s,n]) * (v[n] - E_syns[s,n]) for s in 1:size(G_syns,1), n in 1:size(G_syns,2)], size(G_syns,1), :)
   
@@ -48,10 +48,10 @@
   nothing
 end
 
-function ltc_sys_defs(n_in, n_neurons; T=Float32)
-  stim   = fill(T(0), n_in)
-  #w_sens = zeros(T, n_in, n_neurons)
-  #w_syns = zeros(T, n_neurons, n_neurons)
+function ltc_init_u0p(n_in, n_neurons; T=Float32)
+  v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
+
+  #stim   = fill(T(0), n_in)
   C      = rand_uniform(T,  1.0,     1.002,   n_neurons)
   G_L    = rand_uniform(T,  0.0001,  0.1,     n_neurons)
   E_L    = rand_uniform(T, -0.3,     0.3,     n_neurons) #.± 0.1f0
@@ -64,21 +64,44 @@ function ltc_sys_defs(n_in, n_neurons; T=Float32)
   h_syns = rand_uniform(T,  0.3,     0.8,     n_neurons, n_neurons)
   E_syns = rand_uniform(T, -0.9,     0.9,     n_neurons, n_neurons)
 
-  v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
-
-  #u0 = ComponentArray(v=v)
-  #p = ComponentArrays(stim=stim, C=C, G_L=G_L, E_L=E_L, 
-  #                G_sens=G_sens, s_sens=s_sens, h_sens=h_sens, E_sens=E_sens,
-  #                G_syns=G_syns, s_syns=s_syns, h_syns=h_syns, E_syns=E_syns)
   u0 = v
-  p = vcat(stim, #vec(w_sens), vec(w_syns),
-           C, G_L, E_L,
-           vec(G_sens), vec(s_sens), vec(h_sens), vec(E_sens),
-           vec(G_syns), vec(s_syns), vec(h_syns), vec(E_syns),)
+  p = vcat( #stim,
+    C, G_L, E_L,
+    vec(G_sens), vec(s_sens), vec(h_sens), vec(E_sens),
+    vec(G_syns), vec(s_syns), vec(h_syns), vec(E_syns),
+  )
   return u0, p
 end
 
-function ltc_sys_bounds(n_in, n_neurons; T=Float32)
+
+function ltc_u0p_ca(n_in, n_neurons; T=Float32)
+  v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
+
+  stim   = fill(T(0), n_in)
+
+  C      = rand_uniform(T,  1.0,     1.002,   n_neurons)
+  G_L    = rand_uniform(T,  0.0001,  0.1,     n_neurons)
+  E_L    = rand_uniform(T, -0.3,     0.3,     n_neurons) #.± 0.1f0
+  G_sens = rand_uniform(T,  0.0001,  0.1,     n_in, n_neurons)
+  s_sens = rand_uniform(T,  3,       8,       n_in, n_neurons)
+  h_sens = rand_uniform(T,  0.3,     0.8,     n_in, n_neurons)
+  E_sens = rand_uniform(T, -0.9,     0.9,     n_in, n_neurons)
+  G_syns = rand_uniform(T,  0.0001,  0.1,     n_neurons, n_neurons)
+  s_syns = rand_uniform(T,  3,       8,       n_neurons, n_neurons)
+  h_syns = rand_uniform(T,  0.3,     0.8,     n_neurons, n_neurons)
+  E_syns = rand_uniform(T, -0.9,     0.9,     n_neurons, n_neurons)
+
+  #u0 = ComponentArray{T}(v=v)
+  u0 = v
+  p = ComponentArrays{T}( #stim=stim, 
+    C=C, G_L=G_L, E_L=E_L, 
+    G_sens=G_sens, s_sens=s_sens, h_sens=h_sens, E_sens=E_sens,
+    G_syns=G_syns, s_syns=s_syns, h_syns=h_syns, E_syns=E_syns)
+
+  u0, p
+end
+
+function ltc_bounds(n_in, n_neurons; T=Float32)
   lb = vcat(
     [1.0 for _ in 1:n_neurons],               # C
     [0 for _ in 1:n_neurons],                 # G_L
@@ -113,7 +136,7 @@ function ltc_sys_bounds(n_in, n_neurons; T=Float32)
 end
 
 
-function ltc_sys_unpack_p(n_in,n_neurons,p)
+function ltc_unpack_p(n_in,n_neurons,p)
   stiml = n_in
   Cl = n_neurons
   G_Ll = n_neurons
@@ -158,58 +181,24 @@ function ltc_sys_unpack_p(n_in,n_neurons,p)
   return stim, C, G_L, E_L, G_sens, s_sens, h_sens, E_sens, G_syns, s_syns, h_syns, E_syns
 end
 
-
-
-
-
-function LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; 
-  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
-  w_sens=ones(T, n_in, n_neurons), 
-  w_syns=ones(T, n_neurons, n_neurons),
-  mtkize=false, gen_jac=false, kwargs...)
-
-  tspan = T.((0, 1))
-
-  u0, p = ltc_sys_defs(n_in, n_neurons; T)
-
-  dudt!(du,u,p,t) = ltc_sys!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
-
-  _prob = ODEProblem{true}(dudt!, u0, tspan, p)
-  p_ode = p[n_in+1:end]
-
-  prob = _prob
-
-  prob = mtkize_prob(_prob, dudt!, mtkize, gen_jac)
-
-  # eqs = ModelingToolkit.equations(sys)
-  # sts = ModelingToolkit.states(sys)
-  # noiseeqs = 0.1f0 .* sts
-  # ps = ModelingToolkit.parameters(sys)
-  # @named sde = SDESystem(eqs,noiseeqs,ModelingToolkit.get_iv(sys),sts,ps)
-  # prob = SDEProblem(sde,u0,tspan,p)
-
-
-  state0 = reshape(u0, :, 1)#::Matrix{T}
-  θ = vcat(p_ode, u0)#::Vector{T}
-
-  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
+function ltc_unpack_p_ca(n_in,n_neurons,p)
 end
-
-
 
 function LTC(n_in, n_neurons, solver, sensealg; 
-  T=Float32, n_sens=n_neurons, n_out=n_neurons, 
+  T=Float32, tspan=T.((0, 1)), n_sens=n_neurons, n_out=n_neurons, 
   w_sens=ones(T, n_in, n_neurons), 
   w_syns=ones(T, n_neurons, n_neurons),
   mtkize=false, gen_jac=false, kwargs...)
 
-  lb, ub = ltc_sys_bounds(n_in, n_neurons; T)
-  rnncell = LTCCell(n_in, n_neurons, solver, sensealg, lb, ub; T, n_sens, n_out, mtkize, gen_jac, w_sens, w_syns, kwargs...)
+  
+  lb, ub = ltc_bounds(n_in, n_neurons; T)
+  u0, p = ltc_init_u0p(n_in, n_neurons; T)
+  #u0, p = ltc_sys_u0p_ca(n_in, n_neurons; T)
+  dudt!(du,u,p,t) = ltc!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
+
+  rnncell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, dudt!, u0, tspan, p, lb, ub; mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)
 end
-
-
-
 
 
 
