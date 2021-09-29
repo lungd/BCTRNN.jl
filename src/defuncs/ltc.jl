@@ -7,20 +7,23 @@
   
   #I_senss = Array{eltype(stim)}(undef, n_in, n_neurons)
   #I_synss = Array{eltype(stim)}(undef, n_neurons, n_neurons)
-  I_sens = zeros(eltype(stim), n_neurons)
-  I_syns = zeros(eltype(stim), n_neurons)
+  I_senss = zeros(eltype(stim), n_in, n_neurons)
+  I_synss = zeros(eltype(stim), n_neurons, n_neurons)
 
   # TODO: tullio?
-  @inbounds @simd for n in 1:n_neurons
+  for n in 1:n_neurons
     for s in 1:n_in
-      I_sens[n] += w_sens[s,n] * G_sens[s,n] * mysigm((stim[s] - h_sens[s,n]) * s_sens[s,n]) * (v[n] - E_sens[s,n])
-    end
-    for s in 1:n_neurons
-      I_syns[n] += w_syns[s,n] * G_syns[s,n] * mysigm((v[s] - h_syns[s,n]) * s_syns[s,n]) * (v[n] - E_syns[s,n])
+      I_senss[s,n] = w_sens[s,n] * G_sens[s,n] * mysigm((stim[s] - h_sens[s,n]) * s_sens[s,n]) * (v[n] - E_sens[s,n])
     end
   end
-  #I_sens = reshape(sum(I_senss, dims=1), :)
-  #I_syns = reshape(sum(I_synss, dims=1), :)
+
+  for n in 1:n_neurons
+    for s in 1:n_neurons
+      I_synss[s,n] = w_syns[s,n] * G_syns[s,n] * mysigm((v[s] - h_syns[s,n]) * s_syns[s,n]) * (v[n] - E_syns[s,n])
+    end
+  end
+  I_sens = reshape(sum(I_senss, dims=1), :)
+  I_syns = reshape(sum(I_synss, dims=1), :)
 
 
 
@@ -48,10 +51,10 @@
   nothing
 end
 
-function ltc_init_u0p(n_in, n_neurons; T=Float32)
+function ltc_init_u0p(n_in, n_neurons; T=Float32, wiring=nothing)
   v = rand_uniform(T, 0.01, 0.1, n_neurons) #.± 0.1f0
 
-  #stim   = fill(T(0), n_in)
+  stim   = fill(T(0), n_in)
   C      = rand_uniform(T,  1.0,     1.002,   n_neurons)
   G_L    = rand_uniform(T,  0.0001,  0.1,     n_neurons)
   E_L    = rand_uniform(T, -0.3,     0.3,     n_neurons) #.± 0.1f0
@@ -64,8 +67,13 @@ function ltc_init_u0p(n_in, n_neurons; T=Float32)
   h_syns = rand_uniform(T,  0.3,     0.8,     n_neurons, n_neurons)
   E_syns = rand_uniform(T, -0.9,     0.9,     n_neurons, n_neurons)
 
+  if wiring !== nothing
+    E_sens = wiring.matrices[:E_sens]
+    E_syns = wiring.matrices[:E_syns]
+  end
+
   u0 = v
-  p = vcat( #stim,
+  p = vcat( stim,
     C, G_L, E_L,
     vec(G_sens), vec(s_sens), vec(h_sens), vec(E_sens),
     vec(G_syns), vec(s_syns), vec(h_syns), vec(E_syns),
@@ -93,7 +101,7 @@ function ltc_u0p_ca(n_in, n_neurons; T=Float32)
 
   #u0 = ComponentArray{T}(v=v)
   u0 = v
-  p = ComponentArrays{T}( #stim=stim, 
+  p = ComponentArrays{T}( stim=stim, 
     C=C, G_L=G_L, E_L=E_L, 
     G_sens=G_sens, s_sens=s_sens, h_sens=h_sens, E_sens=E_sens,
     G_syns=G_syns, s_syns=s_syns, h_syns=h_syns, E_syns=E_syns)
@@ -184,22 +192,47 @@ end
 function ltc_unpack_p_ca(n_in,n_neurons,p)
 end
 
-function LTC(n_in, n_neurons, solver, sensealg; 
-  T=Float32, tspan=T.((0, 1)), n_sens=n_neurons, n_out=n_neurons, 
-  w_sens=ones(T, n_in, n_neurons), 
-  w_syns=ones(T, n_neurons, n_neurons),
-  mtkize=false, gen_jac=false, kwargs...)
+# function LTC(n_in, n_neurons, solver, sensealg; 
+#   T=Float32, tspan=T.((0, 1)), n_sens=n_neurons, n_out=n_neurons, 
+#   w_sens=ones(T, n_in, n_neurons), 
+#   w_syns=ones(T, n_neurons, n_neurons),
+#   wiring=nothing,
+#   mtkize=true, gen_jac=false, kwargs...)
 
+#   if wiring !== nothing
+#     w_sens = wiring.matrices[:w_sens]
+#     w_syns = wiring.matrices[:w_syns]
+#   end
   
-  lb, ub = ltc_bounds(n_in, n_neurons; T)
-  u0, p = ltc_init_u0p(n_in, n_neurons; T)
-  #u0, p = ltc_sys_u0p_ca(n_in, n_neurons; T)
-  dudt!(du,u,p,t) = ltc!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
+#   lb, ub = ltc_bounds(n_in, n_neurons; T)
+#   u0, p = ltc_init_u0p(n_in, n_neurons; T, wiring)
+#   #u0, p = ltc_sys_u0p_ca(n_in, n_neurons; T)
+#   dudt!(du,u,p,t) = ltc!(du,u,p,t, n_in, n_neurons, w_sens, w_syns)
 
-  rnncell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, dudt!, u0, tspan, p, lb, ub; mtkize, gen_jac, kwargs...)
+#   rnncell = BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, dudt!, u0, tspan, p, lb, ub; mtkize, gen_jac, kwargs...)
+#   MyRecur(rnncell)
+# end
+
+
+function LTC(wiring, solver, sensealg; 
+  T=Float32, tspan=T.((0, 1)),
+  #wiring=nothing,
+  mtkize=true, gen_jac=false, kwargs...)
+
+  w_sens = wiring.matrices[:w_sens]
+  w_syns = wiring.matrices[:w_syns]
+  
+  s_in = wiring.s_in
+  n_neurons = wiring.n_total
+
+  lb, ub = ltc_bounds(s_in, n_neurons; T)
+  u0, p = ltc_init_u0p(s_in, n_neurons; T, wiring)
+  #u0, p = ltc_sys_u0p_ca(s_in, n_neurons; T)
+  dudt!(du,u,p,t) = ltc!(du,u,p,t, s_in, n_neurons, w_sens, w_syns)
+
+  rnncell = BCTRNNCell(wiring, solver, sensealg, dudt!, u0, tspan, p, lb, ub; mtkize, gen_jac, kwargs...)
   MyRecur(rnncell)
 end
-
 
 
 

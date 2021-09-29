@@ -22,6 +22,7 @@ import IterTools: ncycle
 include("layers.jl")
 include("defuncs/ltc.jl")
 include("defuncs/ltc_gj.jl")
+include("wiring/basic.jl")
 include("model.jl")
 include("optimize.jl")
 include("losses.jl")

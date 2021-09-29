@@ -13,13 +13,18 @@ function (m::MyRecur)(x, p=m.p)
   m.state, y = m.cell(m.state, m.input, x, p)
   return y
 end
+# function (m::MyRecur)(x::AbstractArray{T, 3}, p=m.p) where T
+#   h = [m(view(x, :, :, i), p) for i in 1:size(x, 3)]
+#   sze = size(h[1])
+#   reshape(reduce(hcat, h), sze[1], sze[2], length(h))
+# end
 Base.show(io::IO, m::MyRecur) = print(io, "MyRecur(", m.cell, ")")
 initial_params(m::MyRecur) = initial_params(m.cell)
 paramlength(m::MyRecur) = length(m.p)
-Flux.functor(m::MyRecur) = (m.p), re -> MyRecur(m.cell, m.state, m.input, re...)
+Flux.functor(::Type{<:MyRecur}, m) = (m.p), re -> MyRecur(m.cell, m.state, m.input, re...)
 Flux.trainable(m::MyRecur) = (m.p,)
 get_bounds(m::MyRecur, T::DataType=eltype(m.state)) = get_bounds(m.cell, T)
-Flux.reset!(m::MyRecur, p=m.p) = (m.state = reshape(p[end-length(m.cell.state0)+1:end],:,1))
+Flux.reset!(m::MyRecur) = reset_state!(m)
 function reset_state!(m::MyRecur, p=m.p)
   #m.p = p
   pl = length(p)
@@ -30,15 +35,26 @@ function reset_state!(m::MyRecur, p=m.p)
 end
 # TODO: reset_state! for cell with train_u0=false
 
+function Base.getproperty(m::MyRecur{T,S,I,P}, s::Symbol) where {T,S,I,P}
+  if s === :cell
+    return getfield(m, :cell)
+  elseif s === :state
+    return getfield(m, :state)
+  elseif s === :input
+    return getfield(m, :input)
+  elseif s === :p
+    return getfield(m, :p)
+  else
+    return getfield(m, s)
+  end
+end
 
 ode_solve_kwargs(; abstol=1e-4, reltol=1e-4, save_everystep=false, save_start=false, save_end=true) = 
   (abstol = abstol, reltol = reltol, save_everystep = save_everystep, save_start = save_start, save_end = save_end)
 
-struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P,KW}
-  n_in::Int
-  n_sens::Int
-  n_neurons::Int
-  n_out::Int
+struct BCTRNNCell{W,SOLVER,SENSE,PROB,LB,UB,S,P,KW}
+  wiring::W
+
   solver::SOLVER
   sensealg::SENSE
   prob::PROB
@@ -48,16 +64,48 @@ struct BCTRNNCell{SOLVER,SENSE,PROB,LB,UB,S,P,KW}
   p::P
   kwargs::KW
 
-  function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p; kwargs...)
-    new{typeof(solver),typeof(sensealg),typeof(prob),typeof(lb),typeof(ub),typeof(state0),typeof(p), typeof(kwargs)}(
-                      n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, p, kwargs)
+  function BCTRNNCell(wiring, solver, sensealg, prob, lb, ub, state0, p; kwargs...)
+    new{typeof(wiring),typeof(solver),typeof(sensealg),typeof(prob),typeof(lb),typeof(ub),typeof(state0),typeof(p), typeof(kwargs)}(
+                      wiring, solver, sensealg, prob, lb, ub, state0, p, kwargs)
   end
 end
 
-function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, odef, u0, tspan, p, lb, ub; mtkize=false, gen_jac=false, kwargs...)
+function Base.getproperty(m::BCTRNNCell{W,SOLVER,SENSE,PROB,LB,UB,S,P,KW}, s::Symbol) where {W,SOLVER,SENSE,PROB,LB,UB,S,P,KW}
+  if s === :s_in
+    return getproperty(getfield(m, :wiring), s)
+  elseif s === :n_total
+    return getproperty(getfield(m, :wiring), s)
+  # elseif s === :n_in
+  #   return getproperty(getfield(m, :wiring), s)
+  elseif s === :n_out
+    return getproperty(getfield(m, :wiring), s)
+  elseif s === :wiring
+    return getfield(m, :wiring)
+  elseif s === :solver
+    return getfield(m, :solver)
+  elseif s === :sensealg
+    return getfield(m, :sensealg)
+  elseif s === :prob
+    return getfield(m, :prob)
+  elseif s === :lb
+    return getfield(m, :lb)
+  elseif s === :ub
+    return getfield(m, :ub)
+  elseif s === :state0
+    return getfield(m, :state0)
+  elseif s === :p
+    return getfield(m, :p)
+  elseif s === :kwargs
+    return getfield(m, :kwargs)
+  else
+    return getfield(m, s)
+  end
+end
+
+function BCTRNNCell(wiring, solver, sensealg, odef, u0, tspan, p, lb, ub; mtkize=false, gen_jac=false, kwargs...)
   _prob = ODEProblem{true}(odef, u0, tspan, p)
-  p_ode = p#[n_in+1:end]
-  prob = mtkize_prob(_prob, odef, mtkize, gen_jac)
+  p_ode = p[wiring.s_in+1:end]
+  prob = mtkize_prob(_prob, odef, u0, tspan, p, mtkize, gen_jac)
 
   # eqs = ModelingToolkit.equations(sys)
   # sts = ModelingToolkit.states(sys)
@@ -69,7 +117,7 @@ function BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, odef, u0, 
   state0 = reshape(u0, :, 1)
   θ = vcat(p_ode, u0)
 
-  BCTRNNCell(n_in, n_sens, n_neurons, n_out, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
+  BCTRNNCell(wiring, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
 end
 
 
@@ -99,7 +147,7 @@ function (m::BCTRNNCell)(h, last_input, x::AbstractArray, p=m.p)
     #p = ComponentArray(stim=(@view x[:,i]), p_ode_ca)
     p = vcat((@view x[:,i]), p_ode)
 
-    affect!(integrator) = integrator.p[1:m.n_in] .= @view interpol(integrator.t)[:,i]
+    affect!(integrator) = integrator.p[1:m.s_in] .= @view interpol(integrator.t)[:,i]
     #cb = DiscreteCallback(condition,affect!)
     cb = ContinuousCallback(condition2, affect!)
 
@@ -124,10 +172,10 @@ end
 
 
 
-Base.show(io::IO, m::BCTRNNCell) = print(io, "BCTRNNCell(", m.n_in, ",", m.n_out, ")")
+Base.show(io::IO, m::BCTRNNCell) = print(io, "BCTRNNCell(", m.s_in, ",", m.n_out, ")")
 initial_params(m::BCTRNNCell) = m.p
-paramlength(m::BCTRNNCell) = m.paramlength
-Flux.functor(m::BCTRNNCell) = (m.p,), re -> BCTRNNCell(m.n_in, m.n_sens, m.n_neurons, m.n_out, m.solver, m.sensealg, m.prob, m.lb, m.ub, m.state0, re...)
+paramlength(m::BCTRNNCell) = length(m.p)
+Flux.functor(::Type{<:BCTRNNCell}, m) = (m.p,), re -> BCTRNNCell(m.wiring, m.solver, m.sensealg, m.prob, m.lb, m.ub, m.state0, re...)
 Flux.trainable(m::BCTRNNCell) = (m.p,)
 
 
@@ -135,11 +183,11 @@ function get_bounds(m::BCTRNNCell, T::DataType=eltype(m.p))
   m.lb, m.ub
 end
 
-function mtkize_prob(prob, f, mtkize, gen_jac)
+function mtkize_prob(prob, f, u0, tspan, p, mtkize, gen_jac)
   mtkize == false && return prob
   
   sys = ModelingToolkit.modelingtoolkitize(prob)
-  sys = ModelingToolkit.structural_simplify(sys)
+  #sys = ModelingToolkit.structural_simplify(sys)
 
   gen_jac == false && return ODEProblem{true}(sys,u0,tspan,p, tgrad=true)
   

@@ -32,3 +32,10 @@ function loss_seq(p, m, x, y)
   return mean(Flux.Losses.mse.(ŷ,y, agg=mean)), ŷ, y
 end
 
+# function loss_3d_seq(p, m, x, y)
+#   m = get_model(m,p)
+#   ŷ = m(x, p)
+#   Inf ∈ ŷ && return Inf32, ŷ, y
+#   l = mean(Flux.Losses.mse.(ŷ,y, agg=mean))
+#   return l, ŷ, y
+# end

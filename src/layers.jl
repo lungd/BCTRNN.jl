@@ -34,7 +34,7 @@ end
 Base.show(io::IO, m::Mapper) = print(io, "Mapper(", m.W, ", ", m.σ, ")")
 initial_params(m::Mapper) = m.p
 paramlength(m::Mapper) = length(m.p)
-Flux.functor(m::Mapper) = (m.p,), re -> Mapper(m.W, m.b, m.σ, re...)
+Flux.functor(::Type{<:Mapper}, m) = (m.p,), re -> Mapper(m.W, m.b, m.σ, re...)
 Flux.trainable(m::Mapper) = (m.p,)
 function get_bounds(m::Mapper, T::DataType=eltype(m.p))
   lb = T.(vcat(fill(-10.1, length(m.W)), fill(-10.1, length(m.b))))
