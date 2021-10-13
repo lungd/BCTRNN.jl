@@ -55,8 +55,9 @@ function train_sine_fc(epochs, solver=Tsit5();
 end
 
 @time res, model, defs, sys = train_sine_fc(200, Tsit5(); lr=0.02, in_size=3, model_size=5,
-save_everystep=false, save_start=false, save_end=true, tgrad=true, gen_jac=false,
-#abstol=1e-3, reltol=1e-2,
-dt=0.2f0, adaptive=false,
+tgrad=true, gen_jac=false,
+save_everystep=false, save_start=false, save_end=true,
+abstol=1e-4, reltol=1e-3#, dtmin=1e-3, dtmax=1.0
+#dt=0.2f0, adaptive=false,
 )
 
