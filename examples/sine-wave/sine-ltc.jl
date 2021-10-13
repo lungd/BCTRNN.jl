@@ -14,7 +14,7 @@ include("sine_wave_dataloader.jl")
 function train_sine_fc(epochs, solver=Tsit5();
   sensealg=InterpolatingAdjoint(autojacvec=ReverseDiffVJP(true)),
   T=Float32, model_size=5,
-  mtkize=false, lr=0.02, kwargs...)
+  mtkize=false, gen_jac=false, lr=0.02, kwargs...)
 
   train_dl = generate_2d_data(T)
 
@@ -27,7 +27,7 @@ function train_sine_fc(epochs, solver=Tsit5();
   wiring = BCTRNN.WiringConfig(f_in, model_size, im,sm,om)
 
   model = FastChain(BCTRNN.Mapper(f_in),
-                    BCTRNN.LTC(wiring, solver, sensealg; T, mtkize, kwargs...),
+                    BCTRNN.LTC(wiring, solver, sensealg; T, mtkize, gen_jac, kwargs...),
                     FastDense(wiring.n_out, f_out))
 
   hs = []
@@ -42,7 +42,28 @@ function train_sine_fc(epochs, solver=Tsit5();
   BCTRNN.optimize(model, BCTRNN.loss_seq, cb, opt, train_dl, epochs, T), model
 end
 
-@time train_sine_fc(200, Tsit5(); model_size=10, mtkize=true)
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false) # 29.983295 seconds (134.07 M allocations: 6.758 GiB, 5.35% gc time)
+
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=InterpolatingAdjoint(autojacvec=ZygoteVJP()))
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=InterpolatingAdjoint(checkpointing=true, autojacvec=ZygoteVJP()))
+
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=true, gen_jac=true, sensealg=InterpolatingAdjoint())
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=true, gen_jac=true, sensealg=InterpolatingAdjoint(autojacvec=ZygoteVJP()))
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=true, gen_jac=true, sensealg=InterpolatingAdjoint(autojacvec=false))
+
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=BacksolveAdjoint())
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=BacksolveAdjoint(autojacvec=ZygoteVJP())) # slow
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=BacksolveAdjoint(checkpointing=true, autojacvec=ZygoteVJP())) # slow
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=BacksolveAdjoint(checkpointing=true, autojacvec=false)) # slow
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=true, gen_jac=true, sensealg=BacksolveAdjoint()) # slow
+#@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=BacksolveAdjoint(autojacvec=EnzymeVJP())) # fails crashes
+
+
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=QuadratureAdjoint())
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=QuadratureAdjoint(autojacvec=ZygoteVJP()))
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=QuadratureAdjoint(compile=true, autojacvec=ZygoteVJP()))
+@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=true, gen_jac=true, sensealg=QuadratureAdjoint(compile=true, autojacvec=false))
+#@time train_sine_fc(100, Tsit5(); model_size=10, mtkize=false, sensealg=QuadratureAdjoint(autojacvec=EnzymeVJP()))
 
 
 function train_sine(epochs, solver=Tsit5();

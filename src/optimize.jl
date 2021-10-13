@@ -29,6 +29,17 @@ load_model(chain::Flux.Chain, T::DataType=Float32) = (Flux.destructure(chain)...
 load_model(chain::FastChain, T::DataType=Float32) = (initial_params(chain), chain, get_bounds(chain,T)...)
 load_model(model, T::DataType=Float32) = (initial_params(model), model, get_bounds(model,T)...)
 
+
+function loss_collocation(p)
+    cost = zero(first(p))
+    for i in 1:size(du,2)
+      _du = dudt2(@view(u[:,i]),p)
+      dui = @view du[:,i]
+      cost += sum(abs2,dui .- _du)
+    end
+    sqrt(cost)
+end
+
 function optimize(chain, loss, cb, opt, train_dl, epochs=1, T::DataType=Float32, AD=GalacticOptim.AutoZygote())
   pp, model, lb, ub = load_model(chain, T)
 
@@ -41,20 +52,25 @@ function optimize(chain, loss, cb, opt, train_dl, epochs=1, T::DataType=Float32,
   println("# ub:                       $(length(ub))")
   println("typeof(lb):                 $(typeof(lb))")
 
+  pp = T.(pp)
+  lb = T.(lb)
+  ub = T.(ub)
+
 
   # mycb = LTC.MyCallback(T, cb, epochs, length(train_dl))
   train_dlnc = epochs > 1 ? ncycle(train_dl, epochs) : train_dl
 
+  # bboptimize(θ->loss(θ,model,first(train_dlnc)...)[1]; SearchRange = [(lb[i],ub[i]) for i in 1:length(lb)], NumDimensions = length(lb))
 
   f = (θ,p,x,y) -> loss(θ,model,x,y)
   optfun = GalacticOptim.OptimizationFunction(f, AD)
-  optfunc = GalacticOptim.instantiate_function(optfun, pp, AD, nothing)
-  optprob = GalacticOptim.OptimizationProblem(optfunc, pp, lb=lb, ub=ub,
-                                grad = true, hess = true, #sparse = true,
-                                #parallel=ModelingToolkit.MultithreadedForm()
+  #optfunc = GalacticOptim.instantiate_function(optfun, pp, AD, nothing)
+  optprob = GalacticOptim.OptimizationProblem(optfun, pp, lb=lb, ub=ub,
+                                grad = true, hess = false, #sparse = true,
+                                parallel=ModelingToolkit.MultithreadedForm()
                                 )
 
-  sol = GalacticOptim.solve(optprob, opt, train_dlnc, cb = cb)
+  sol = GalacticOptim.solve(optprob, opt, train_dlnc; cb)
 
   # optfun = GalacticOptim.OptimizationFunction(f, AD)
   # optfunc = GalacticOptim.instantiate_function(optfun, sol.u, AD, nothing)

@@ -9,8 +9,11 @@ function MyRecur(cell)
   MyRecur(cell, cell.state0, zero(cell.state0), p)
 end
 function (m::MyRecur)(x, p=m.p)
+  batchsize = size(x,2)
   m.input = x
-  m.state, y = m.cell(m.state, m.input, x, p)
+  h′, y = m.cell(m.state, m.input, x, p)
+  Inf ∈ h′ && return fill(Inf32, size(y,1), batchsize)
+  m.state = h′
   return y
 end
 # function (m::MyRecur)(x::AbstractArray{T, 3}, p=m.p) where T
@@ -24,13 +27,13 @@ paramlength(m::MyRecur) = length(m.p)
 Flux.functor(::Type{<:MyRecur}, m) = (m.p), re -> MyRecur(m.cell, m.state, m.input, re...)
 Flux.trainable(m::MyRecur) = (m.p,)
 get_bounds(m::MyRecur, T::DataType=eltype(m.state)) = get_bounds(m.cell, T)
-Flux.reset!(m::MyRecur) = reset_state!(m)
-function reset_state!(m::MyRecur, p=m.p)
+Flux.reset!(m::MyRecur) = reset_state!(m, m.p)
+@views function reset_state!(m::MyRecur, p=m.p)
   #m.p = p
   pl = length(p)
-  state = @view p[reshape(pl-size(m.cell.state0,1)+1:pl, :, 1)]
+  state = p[reshape(pl-size(m.cell.state0,1)+1:pl, :, 1)]
   m.state = state
-  m.input = zero(state)
+  m.input = reshape(zeros(eltype(m.input), size(state,1)), :, 1)
   nothing
 end
 # TODO: reset_state! for cell with train_u0=false
@@ -49,8 +52,8 @@ function Base.getproperty(m::MyRecur{T,S,I,P}, s::Symbol) where {T,S,I,P}
   end
 end
 
-ode_solve_kwargs(; abstol=1e-4, reltol=1e-4, save_everystep=false, save_start=false, save_end=true) = 
-  (abstol = abstol, reltol = reltol, save_everystep = save_everystep, save_start = save_start, save_end = save_end)
+ode_solve_kwargs(; abstol=1e-4, reltol=1e-3, save_everystep=false, save_start=false, save_end=true, kwargs...) = 
+  (abstol=abstol, reltol=reltol, save_everystep=save_everystep, save_start=save_start, save_end=save_end, kwargs...)
 
 struct BCTRNNCell{W,SOLVER,SENSE,PROB,LB,UB,S,P,KW}
   wiring::W
@@ -102,9 +105,18 @@ function Base.getproperty(m::BCTRNNCell{W,SOLVER,SENSE,PROB,LB,UB,S,P,KW}, s::Sy
   end
 end
 
+function BCTRNNCell(wiring, solver, sensealg, prob, lb, ub; kwargs...)
+  u0 = prob.u0
+  p = prob.p
+  p_ode = p[wiring.s_in+1:end]
+  state0 = reshape(u0, :, 1)
+  θ = vcat(p_ode, u0)
+  BCTRNNCell(wiring, solver, sensealg, prob, lb, ub, state0, θ; kwargs...)
+end
+
 function BCTRNNCell(wiring, solver, sensealg, odef, u0, tspan, p, lb, ub; mtkize=false, gen_jac=false, kwargs...)
   _prob = ODEProblem{true}(odef, u0, tspan, p)
-  p_ode = p[wiring.s_in+1:end]
+  p_ode = @view p[wiring.s_in+1:end]
   prob = mtkize_prob(_prob, odef, u0, tspan, p, mtkize, gen_jac)
 
   # eqs = ModelingToolkit.equations(sys)
@@ -122,54 +134,82 @@ end
 
 
 
-function (m::BCTRNNCell)(h, last_input, x::AbstractArray, p=m.p)
+function (m::BCTRNNCell)(h, _last_input, x::AbstractArray, p=m.p)
   # size(h) == (N,1) at the first MTKNODECell invocation. Need to duplicate batchsize times
-  T = eltype(p)
   nstates = size(h,1)
   batchsize = size(x,2)
   num_reps = batchsize-size(h,2)+1
   u0s = repeat(h, 1, num_reps)
+  last_input = repeat(_last_input, 1, num_reps)
 
-  interpol = DataInterpolations.LinearInterpolation([last_input, x], 0f0:1f0)
+  tspan_h = m.prob.tspan
+  tspan_o = (tspan_h[2], tspan_h[2]+1)
 
   p_ode = @view p[1:end-nstates]
-  #p_ode_ca = ltc_sys_vec2ca(m.n_in, m.n_neurons, (@view p[1:end-nstates]))
-  
-  prob = m.prob
-
-  #dosetimes = collect(0.1:0.2:0.9)
-  #condition(u,t,integrator) = t ∈ dosetimes
-  condition2(u,t,integrator) = true
   
 
-  function prob_func(prob,i,repeat)
-    u0 = @view u0s[:,i]
-    #p = ComponentArray(stim=(@view x[:,i]), p_ode_ca)
-    p = vcat((@view x[:,i]), p_ode)
-
-    affect!(integrator) = integrator.p[1:m.s_in] .= @view interpol(integrator.t)[:,i]
-    #cb = DiscreteCallback(condition,affect!)
-    cb = ContinuousCallback(condition2, affect!)
-
-    remake(prob; u0, p, callback=cb)
-  end
-
-  function output_func(sol,i)
-    sol.retcode != :Success && return fill(T(Inf), nstates), false
-    sol[:, end], false
-  end
+  out_idxs = _output_idxs(m.wiring.output_mapping, m.wiring.n_total)
   
-  kwargs = ode_solve_kwargs(; m.kwargs...)
 
-  ensemble_prob = EnsembleProblem(prob; prob_func, output_func, safetycopy=false) # TODO: safetycopy ???
-  sol = solve(ensemble_prob, m.solver, EnsembleThreads(), trajectories=batchsize;
-              sensealg=m.sensealg,
-              kwargs...
-  )
-  sa = Array(sol)
-  return (sa, (@view sa[end-m.n_out+1:end, :]))
+  #sol = solve_ode(m, u0s, tspan_h, p_ode, last_input)
+  sol = solve_ode(m, u0s, tspan_h, p_ode, x)
+  h′ = sol[:, end, :]
+  
+  
+  Inf ∈ h′ && return (fill(Inf32, nstates, batchsize), fill(Inf32, length(out_idxs), batchsize))
+  NaN ∈ h′ && return (fill(Inf32, nstates, batchsize), fill(Inf32, length(out_idxs), batchsize))
+  
+  return (h′, (@view h′[out_idxs, :]))
+
+  # sol = solve_ode(m, h′, tspan_o, p_ode, x)
+  # h′ = sol[:, end, :]
+
+  # return (h′, h′[out_idxs, :])
 end
 
+
+function solve_ode(m, u0s, tspan, p_ode, x)
+  batchsize = size(u0s, 2)
+  prob = m.prob
+  function prob_func(prob,i,repeat)
+    u0 = @view u0s[:,i]
+    stim = @view x[:,i]
+    p = vcat(stim, p_ode)
+
+    # condition(u,t,integrator) = any((u .> 10) .| (u .< -10))
+    # function affect!(integrator)
+    #   for ii in 1:length(integrator.u)
+    #     integrator.u[ii] = clamp(integrator.u[ii], -one(integrator.u[ii]), one(integrator.u[ii]))
+    #   end
+    # end
+    # cb = ContinuousCallback(condition,affect!)
+
+    remake(prob; u0, tspan, p)
+  end
+  function output_func(sol,i)
+
+    # Zygote.@ignore begin 
+    #   if i == 1 && length(sol.t) > 1
+    #     @show length(sol.t)
+    #     fig = plot(xlabel="t", ylabel="step size",title="Adaptive step size")
+    #     steps1 = (@view sol.t[2:end]) - (@view sol.t[1:end-1])
+    #     plot!(fig, (@view sol.t[2:end]),steps1)
+    #     display(fig)
+    #   end
+    # end
+    (sol.retcode != :Success || NaN ∈ sol) && return fill(Inf32, size(u0s,1)), false
+    (@view sol[:, end]), false
+  end
+
+  kwargs = ode_solve_kwargs(; m.kwargs...)
+  ensemble_prob = EnsembleProblem(prob; prob_func, output_func, safetycopy=false) # TODO: safetycopy ???
+  sa = Array(solve(ensemble_prob, m.solver, EnsembleThreads(), trajectories=batchsize;
+              sensealg=m.sensealg,
+              kwargs...
+  ))
+
+  sa
+end
 
 
 Base.show(io::IO, m::BCTRNNCell) = print(io, "BCTRNNCell(", m.s_in, ",", m.n_out, ")")

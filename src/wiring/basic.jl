@@ -6,6 +6,9 @@ struct InputAllToFirstN <: InputMapping
 end
 struct InputDiag <: InputMapping
 end
+struct InputMatrices{T<:AbstractFloat} <: InputMapping
+  matrices::Dict{Symbol, Matrix{T}}
+end
 
 function generate_sens_matrices(im::InputMapping, s_in, n_total; T=Float32)
   _w = zeros(T, s_in, n_total)
@@ -14,6 +17,12 @@ function generate_sens_matrices(im::InputMapping, s_in, n_total; T=Float32)
     add_synapse!(src, dst, _w, _E)
   end
   _w, _E
+end
+
+function generate_sens_matrices(im::InputMatrices, s_in, n_total; T=Float32)
+  w = im.matrices[:w_sens]
+  E = im.matrices[:E_sens]
+  w, E
 end
 
 _input_idxs(m::InputAllToAll, s_in, n_total)    = [(src, dst) for dst in 1:n_total, src in 1:s_in]
@@ -58,6 +67,10 @@ struct SynsNCP <: SynsMapping
   command_motor::Int
 end
 
+struct SynsMatrices{T<:AbstractFloat} <: SynsMapping
+  matrices::Dict{Symbol, Matrix{T}}
+end
+
 SynsNCP(; n_sensory=2, n_inter=5, n_command=5, n_motor=1,
   sensory_inter=2, inter_command=3, command_command=2, command_motor=2
 ) = SynsNCP(n_sensory, n_inter, n_command, n_motor,
@@ -70,6 +83,12 @@ function generate_syns_matrices(sm::SynsMapping, n_total::Integer; T=Float32)
     add_synapse!(src, dst, _w, _E)
   end
   _w, _E
+end
+
+function generate_syns_matrices(sm::SynsMatrices, n_total::Integer; T=Float32)
+  w = sm.matrices[:w_syns]
+  E = sm.matrices[:E_syns]
+  w, E
 end
 
 _syns_idxs(m::SynsFullyConnected, n_total) = [(src, dst) for dst in 1:n_total, src in 1:n_total]
@@ -130,9 +149,9 @@ end
 WiringConfig(s_in::Integer, im::InputMapping, sm::SynsNCP, om::OutputMapping) = 
   WiringConfig(s_in, sm.n_sensory+sm.n_inter+sm.n_command+sm.n_motor, im, sm, om)
 
-  function WiringConfig(s_in::Integer, n_total::Integer, im::InputMapping, sm::SynsMapping, om::OutputMapping)
-  w_sens, E_sens = generate_sens_matrices(im, s_in, n_total)
-  w_syns, E_syns = generate_syns_matrices(sm, n_total)
+function WiringConfig(s_in::Integer, n_total::Integer, im::InputMapping, sm::SynsMapping, om::OutputMapping; T=Float32)
+  w_sens, E_sens = generate_sens_matrices(im, s_in, n_total; T)
+  w_syns, E_syns = generate_syns_matrices(sm, n_total; T)
 
   matrices = Dict(
     :w_sens => w_sens,
@@ -170,6 +189,7 @@ random_polarity(p=[-1,1]) = p[rand(1:length(p))]
 
 function add_synapse!(src, dst, w, E)
   w[src,dst] = default_weight()
+  #E[src,dst] = random_polarity([-50,30])
   E[src,dst] = random_polarity()
 end
 

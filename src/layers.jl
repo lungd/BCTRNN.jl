@@ -37,8 +37,8 @@ paramlength(m::Mapper) = length(m.p)
 Flux.functor(::Type{<:Mapper}, m) = (m.p,), re -> Mapper(m.W, m.b, m.σ, re...)
 Flux.trainable(m::Mapper) = (m.p,)
 function get_bounds(m::Mapper, T::DataType=eltype(m.p))
-  lb = T.(vcat(fill(-10.1, length(m.W)), fill(-10.1, length(m.b))))
-  ub = T.(vcat(fill(10.1, length(m.W)), fill(10.1, length(m.b))))
+  lb = T.(vcat(fill(-100.1, length(m.W)), fill(-100.1, length(m.b))))
+  ub = T.(vcat(fill(100.1, length(m.W)), fill(100.1, length(m.b))))
   lb, ub
 end
 
@@ -58,21 +58,21 @@ function get_bounds(m::Union{Flux.Chain, FastChain}, T::DataType)
   lb, ub
 end
 function get_bounds(m::FastDense, T::DataType=nothing)
-  lb = T.(vcat(fill(-10.1, m.out*m.in), fill(-10.1, m.out)))
-  ub = T.(vcat(fill(10.1, m.out*m.in), fill(10.1, m.out)))
+  lb = T.(vcat(fill(-100.1, m.out*m.in), fill(-100.1, m.out)))
+  ub = T.(vcat(fill(100.1, m.out*m.in), fill(100.1, m.out)))
   if !m.bias
-    lb = T.(vcat(fill(-10.1, m.out*m.in)))
-    ub = T.(vcat(fill(10.1, m.out*m.in)))
+    lb = T.(vcat(fill(-100.1, m.out*m.in)))
+    ub = T.(vcat(fill(100.1, m.out*m.in)))
   end
   lb, ub
 end
 
-function get_bounds(m::Flux.Dense{F, <:AbstractMatrix{T}, B}, ::DataType=nothing) where {F,T,B}
-  lb = T.(vcat(fill(-10.1, length(m.weight)), fill(-10.1, length(m.bias))))
-  ub = T.(vcat(fill(10.1, length(m.weight)), fill(10.1, length(m.bias))))
+function get_bounds(m::Flux.Dense, T=Float32)
+  lb = T.(vcat(fill(-100.1, length(m.weight)), fill(-100.1, length(m.bias))))
+  ub = T.(vcat(fill(100.1, length(m.weight)), fill(100.1, length(m.bias))))
   if m.bias == Flux.Zeros()
-    lb = T.(vcat(fill(-10.1, length(m.weight))))
-    ub = T.(vcat(fill(10.1, length(m.weight))))
+    lb = T.(vcat(fill(-100.1, length(m.weight))))
+    ub = T.(vcat(fill(100.1, length(m.weight))))
   end
   lb, ub
 end
